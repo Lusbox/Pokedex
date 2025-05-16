@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/Lusbox/Pokedex/internal/pokecache"
 )
 
 type cliCommand struct {
@@ -30,11 +33,16 @@ type maplocations struct {
 type config struct {
 	Next     string
 	Previous string
+	cache    *pokecache.Cache
 }
 
 func main() {
-	nextPrevious := config{}
-	npPointer := &nextPrevious
+	cfg := &config{
+		Next:     "https://pokeapi.co/api/v2/location-area/",
+		Previous: "",
+		cache:    pokecache.NewCache(5 * time.Minute),
+	}
+
 	commands = map[string]cliCommand{
 		"exit": {
 			name:        "exit",
@@ -59,7 +67,6 @@ func main() {
 	}
 
 	input := bufio.NewScanner(os.Stdin)
-	nextPrevious.Next = "https://pokeapi.co/api/v2/location-area/"
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -70,7 +77,7 @@ func main() {
 				fmt.Println("Unknown command")
 				continue
 			}
-			err := c.callback(npPointer)
+			err := c.callback(cfg)
 			if err != nil {
 				fmt.Println("Error: ", err)
 			}
@@ -86,7 +93,8 @@ func commandExit(c *config) error {
 
 func commandHelp(c *config) error {
 	fmt.Println("Welcome to the Pokedex!")
-	fmt.Println("Usage:\n")
+	fmt.Println("Usage:")
+	fmt.Println()
 	for _, value := range commands {
 		msg := fmt.Sprintf("%s: %s", value.name, value.description)
 		fmt.Println(msg)
@@ -95,25 +103,34 @@ func commandHelp(c *config) error {
 }
 
 func commandMap(c *config) error {
-	res, err := http.Get(c.Next)
-	if err != nil {
-		return fmt.Errorf("Error getting response: %v", err)
-	}
+	cachedData, ok := c.cache.Get(c.Next)
 
-	defer res.Body.Close()
+	var body []byte
+	if ok {
+		body = cachedData
+	} else {
+		res, err := http.Get(c.Next)
+		if err != nil {
+			return fmt.Errorf("error getting response: %v", err)
+		}
 
-	body, err := io.ReadAll(res.Body)
-	if res.StatusCode > 299 {
-		return fmt.Errorf("Error with statuscode: %v", res.StatusCode)
-	}
-	if err != nil {
-		return fmt.Errorf("Error reading body")
+		defer res.Body.Close()
+
+		var err2 error
+		body, err2 = io.ReadAll(res.Body)
+		if res.StatusCode > 299 {
+			return fmt.Errorf("error with statuscode: %v", res.StatusCode)
+		}
+		if err2 != nil {
+			return fmt.Errorf("error reading body")
+		}
+		c.cache.Add(c.Next, body)
 	}
 
 	var locations maplocations
-	err = json.Unmarshal(body, &locations)
+	err := json.Unmarshal(body, &locations)
 	if err != nil {
-		return fmt.Errorf("Data not json format: %v", err)
+		return fmt.Errorf("data not json format: %v", err)
 	}
 
 	c.Next = locations.Next
@@ -131,25 +148,35 @@ func commandMapb(c *config) error {
 		fmt.Println("you're on the first page")
 		return nil
 	}
-	res, err := http.Get(c.Previous)
-	if err != nil {
-		return fmt.Errorf("Error getting response: %v", err)
-	}
 
-	defer res.Body.Close()
+	cachedData, ok := c.cache.Get(c.Previous)
 
-	body, err := io.ReadAll(res.Body)
-	if res.StatusCode > 299 {
-		return fmt.Errorf("Error with statuscode: %v", res.StatusCode)
-	}
-	if err != nil {
-		return fmt.Errorf("Error reading body")
+	var body []byte
+	if ok {
+		body = cachedData
+	} else {
+		res, err := http.Get(c.Previous)
+		if err != nil {
+			return fmt.Errorf("error getting response: %v", err)
+		}
+
+		defer res.Body.Close()
+
+		body, err = io.ReadAll(res.Body)
+		if res.StatusCode > 299 {
+			return fmt.Errorf("error with statuscode: %v", res.StatusCode)
+		}
+		if err != nil {
+			return fmt.Errorf("error reading body")
+		}
+
+		c.cache.Add(c.Previous, body)
 	}
 
 	var locations maplocations
-	err = json.Unmarshal(body, &locations)
+	err := json.Unmarshal(body, &locations)
 	if err != nil {
-		return fmt.Errorf("Data not json format: %v", err)
+		return fmt.Errorf("data not json format: %v", err)
 	}
 
 	c.Next = locations.Next

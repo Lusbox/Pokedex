@@ -22,7 +22,7 @@ type cliCommand struct {
 
 var commands map[string]cliCommand
 
-var pokedex map[string]pokemonDetails
+var myPokedex map[string]pokemonDetails
 
 type maplocations struct {
 	Count    int    `json:"count"`
@@ -342,12 +342,13 @@ type pokemonDetails struct {
 }
 
 type config struct {
-	Next     string
+	Next string
 	Previous string
-	cache    *pokecache.Cache
+	cache *pokecache.Cache
 }
 
 func main() {
+	myPokedex = make(map[string]pokemonDetails)
 	cfg := &config{
 		Next:     "https://pokeapi.co/api/v2/location-area/",
 		Previous: "",
@@ -385,6 +386,16 @@ func main() {
 			description: "Attempt to catch Pokemon",
 			callback:    commandCatch,
 		},
+		"inspect": {
+			name:		 "inspect",
+			description: "Show Pokemon details",
+			callback: 	 commandInspect,
+		},
+		"pokedex": {
+			name: "pokedex",
+			description: "List Pokemon you have caught",
+			callback: nil,
+		},
 	}
 
 	input := bufio.NewScanner(os.Stdin)
@@ -403,6 +414,10 @@ func main() {
 			c, ok := commands[commandName]
 			if !ok {
 				fmt.Println("Unknown command")
+				continue
+			}
+			if commandName == "pokedex" {
+				pokedex()
 				continue
 			}
 
@@ -587,7 +602,7 @@ func commandCatch(c *config, name ...string) error {
 		return fmt.Errorf("error parsing response: %v", err)
 	}
 
-	pokedex = make(map[string]pokemonDetails)
+	
 
 	fmt.Printf("Throwing a Pokeball at %s...\n", name[0])
 
@@ -595,11 +610,43 @@ func commandCatch(c *config, name ...string) error {
 	if attempt < 20  {
 		fmt.Printf("%s was caught!\n", name[0])
 		fmt.Printf("Adding %s to Pokedex\n", name[0])
-		pokedex[name[0]] = pokemon
+		myPokedex[name[0]] = pokemon
 	} else {
 		fmt.Printf("%s escaped!\n", name[0])
 		return nil
 	}
 	return nil
 
+}
+
+func commandInspect(c *config, name ...string) error {
+	item, ok := myPokedex[name[0]]
+	if !ok {
+		fmt.Println("you have not caught this Pokemon")
+		return nil
+	}
+
+	fmt.Printf("Name: %s\n", item.Name)
+	fmt.Printf("Height: %d\n", item.Height)
+	fmt.Printf("Weight: %d\n", item.Weight)
+	fmt.Println("Stats:")
+	for _, field := range item.Stats {
+		fmt.Printf(" - %s: %d\n", field.Stat.Name, field.BaseStat)
+	}
+	fmt.Println("Types:")
+	for _, field := range item.Types {
+		fmt.Printf(" - %s\n", field.Type.Name)
+	}
+
+	return nil
+}
+
+func pokedex() {
+	fmt.Println("Your Pokedex:")
+	if len(myPokedex) == 0 {
+		fmt.Println("You have not caught any Pokemon")
+	}
+	for key, _ := range myPokedex {
+		fmt.Printf(" - %s\n", key)
+	}
 }
